@@ -62,6 +62,7 @@ if "messages" not in st.session_state:
     st.session_state.last_question = ""
     st.session_state.last_answer = ""
     st.session_state.awaiting_feedback = False
+    st.session_state.feedback_type = None
 
 # Handle reset
 if clear_button:
@@ -71,6 +72,7 @@ if clear_button:
     st.session_state.last_question = ""
     st.session_state.last_answer = ""
     st.session_state.awaiting_feedback = False
+    st.session_state.feedback_type = None
     agent.clear_conversation()
     st.rerun()
 
@@ -114,34 +116,64 @@ def show_feedback_section():
 
         with col1:
             if st.button("👍 도움됨", key="helpful"):
-                success = feedback.save_feedback(
-                    question=st.session_state.last_question,
-                    answer=st.session_state.last_answer,
-                    is_helpful=True,
-                    session_id=st.session_state.session_id
-                )
-                if success:
-                    st.success("피드백이 저장되었습니다. 감사합니다!")
-                st.session_state.awaiting_feedback = False
+                st.session_state.feedback_type = "helpful"
                 st.rerun()
 
         with col2:
             if st.button("👎 아쉬움", key="not_helpful"):
+                st.session_state.feedback_type = "not_helpful"
+                st.rerun()
+
+
+def show_feedback_form():
+    """Display feedback form with text input."""
+    if st.session_state.get("feedback_type"):
+        is_helpful = st.session_state.feedback_type == "helpful"
+
+        st.markdown("---")
+        if is_helpful:
+            st.markdown("**도움이 된 점을 알려주세요 (선택사항)**")
+            feedback_text = st.text_area(
+                "도움이 된 부분",
+                placeholder="어떤 부분이 도움이 되었나요?",
+                key="helpful_text",
+                label_visibility="collapsed"
+            )
+        else:
+            st.markdown("**아쉬운 점을 알려주세요 (선택사항)**")
+            feedback_text = st.text_area(
+                "아쉬운 부분",
+                placeholder="어떤 부분이 아쉬웠나요? 개선할 점이 있다면 알려주세요.",
+                key="not_helpful_text",
+                label_visibility="collapsed"
+            )
+
+        col1, col2 = st.columns([1, 4])
+        with col1:
+            if st.button("제출", key="submit_feedback"):
                 success = feedback.save_feedback(
                     question=st.session_state.last_question,
                     answer=st.session_state.last_answer,
-                    is_helpful=False,
+                    is_helpful=is_helpful,
+                    feedback_text=feedback_text,
                     session_id=st.session_state.session_id
                 )
                 if success:
-                    st.info("피드백이 저장되었습니다. 더 나은 답변을 위해 노력하겠습니다.")
+                    if is_helpful:
+                        st.success("피드백이 저장되었습니다. 감사합니다!")
+                    else:
+                        st.info("피드백이 저장되었습니다. 더 나은 답변을 위해 노력하겠습니다.")
                 st.session_state.awaiting_feedback = False
+                st.session_state.feedback_type = None
                 st.rerun()
 
 
 # Show feedback section if awaiting
 if st.session_state.awaiting_feedback:
-    show_feedback_section()
+    if st.session_state.get("feedback_type"):
+        show_feedback_form()
+    else:
+        show_feedback_section()
 
 # Chat input
 if prompt := st.chat_input("SOP 관련 질문을 입력하세요..."):
