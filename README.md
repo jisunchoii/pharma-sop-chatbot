@@ -4,6 +4,10 @@
 
 ## 아키텍처
 
+![Pharma SOP Chatbot Architecture](generated-diagrams/architecture.png)
+
+### 주요 컴포넌트
+
 - **Amazon Bedrock Knowledge Base**: 문서 검색 및 RAG 엔진
 - **OpenSearch Serverless**: 벡터 임베딩 저장소 (VECTORSEARCH 타입)
 - **Amazon S3**: 소스 문서 저장소
@@ -11,6 +15,17 @@
 - **Cohere Rerank v3.5**: 검색 결과 재순위화
 - **Strands Agents SDK**: 에이전트 기반 챗봇 프레임워크
 - **Streamlit**: 웹 UI
+- **DynamoDB**: 사용자 피드백 저장
+
+### 데이터 흐름
+
+1. 사용자가 Streamlit UI를 통해 질문 입력
+2. Strands Agent가 Knowledge Base에 검색 요청
+3. Titan Embedding v2로 쿼리 벡터화
+4. OpenSearch Serverless에서 벡터 유사도 검색
+5. Cohere Rerank로 검색 결과 재순위화
+6. Claude 모델이 검색된 컨텍스트를 바탕으로 응답 생성
+7. 사용자에게 응답 전달 및 피드백 수집
 
 ## 주요 기능
 
