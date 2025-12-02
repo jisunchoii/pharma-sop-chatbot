@@ -146,14 +146,20 @@ Resources:
     Type: AWS::IAM::ManagedPolicy
     Properties:
       ManagedPolicyName: !Sub '${KnowledgeBaseName}-bedrock-model-policy'
-      Description: 'Policy allowing Bedrock Knowledge Base to invoke Titan Text Embedding v2 model'
+      Description: 'Policy allowing Bedrock Knowledge Base to invoke Titan Text Embedding v2 model and Rerank'
       PolicyDocument:
         Version: '2012-10-17'
         Statement:
           - Effect: Allow
             Action:
               - bedrock:InvokeModel
-            Resource: !Sub 'arn:aws:bedrock:${AWS::Region}::foundation-model/amazon.titan-embed-text-v2:0'
+            Resource:
+              - !Sub 'arn:aws:bedrock:${AWS::Region}::foundation-model/amazon.titan-embed-text-v2:0'
+              - !Sub 'arn:aws:bedrock:${AWS::Region}::foundation-model/cohere.rerank-v3-5:0'
+          - Effect: Allow
+            Action:
+              - bedrock:Rerank
+            Resource: '*'
 
   # OpenSearch Serverless Encryption Security Policy
   OpenSearchEncryptionPolicy:
