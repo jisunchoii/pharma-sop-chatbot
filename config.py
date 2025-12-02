@@ -16,15 +16,15 @@ RERANKER_MODEL_ARN = f"arn:aws:bedrock:{AWS_REGION}::foundation-model/cohere.rer
 # Model Options
 MODEL_OPTIONS = {
     "Claude Sonnet 4": {
-        "model_id": "us.anthropic.claude-sonnet-4-20250514-v1:0",
+        "model_id": "apac.anthropic.claude-sonnet-4-20250514-v1:0",
         "max_tokens": 4096,
     },
     "Claude Sonnet 4.5": {
-        "model_id": "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
+        "model_id": "global.anthropic.claude-sonnet-4-5-20250929-v1:0",
         "max_tokens": 4096,
     },
     "Claude Haiku 4.5": {
-        "model_id": "us.anthropic.claude-haiku-4-5-20251001-v1:0",
+        "model_id": "global.anthropic.claude-haiku-4-5-20251001-v1:0",
         "max_tokens": 4096,
     },
 }

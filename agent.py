@@ -172,15 +172,15 @@ def retrieve_from_knowledge_base(query: str) -> str:
         retrieval_config = {
             "vectorSearchConfiguration": {
                 "numberOfResults": config.RAG_NUMBER_OF_RESULTS,
-                "rerankingConfiguration": {
-                    "type": "BEDROCK_RERANKING_MODEL",
-                    "bedrockRerankingConfiguration": {
-                        "modelConfiguration": {
-                            "modelArn": config.RERANKER_MODEL_ARN
-                        },
-                        "numberOfRerankedResults": config.RAG_NUMBER_OF_RERANKED_RESULTS
-                    }
-                }
+                # "rerankingConfiguration": {
+                #     "type": "BEDROCK_RERANKING_MODEL",
+                #     "bedrockRerankingConfiguration": {
+                #         "modelConfiguration": {
+                #             "modelArn": config.RERANKER_MODEL_ARN
+                #         },
+                #         "numberOfRerankedResults": config.RAG_NUMBER_OF_RERANKED_RESULTS
+                #     }
+                # }
             }
         }
 

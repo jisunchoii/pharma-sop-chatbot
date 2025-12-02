@@ -35,18 +35,16 @@
   - Overlap: 60 토큰
 - Cohere Rerank를 통한 검색 결과 재순위화
 - HNSW 알고리즘 기반 벡터 검색 (FAISS 엔진)
-- Claude Sonnet 4.5 / Haiku 4.5 모델 선택 가능
+- Claude Sonnet 4 / Sonnet 4.5 / Haiku 4.5 모델 선택 가능
 - 대화 히스토리 유지 (Sliding Window)
 - 사용자 피드백 수집
 
 ## 사전 요구사항
 
 1. AWS 계정 및 적절한 권한
+  - 챗봇 실행 환경에서 필요한 권한 : Amazon S3, Amazon Dynamo DB, Amazon Bedrock
 2. S3 버킷 생성 및 SOP 문서 업로드 완료
-3. Amazon Bedrock 모델 액세스 활성화:
-   - Amazon Titan Text Embeddings V2
-   - Cohere Rerank 3.5
-   - Claude Sonnet 4.5 / Haiku 4.5
+3. GMP Glossary CSV 파일 생성 및 업로드 완료 (경로 :/tmp/glossary/gmp_glossary.csv)
 4. Python 3.12+
 
 ## 빠른 시작
