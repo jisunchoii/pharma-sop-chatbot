@@ -166,12 +166,13 @@ def retrieve_from_knowledge_base(query: str) -> str:
     """
     if not config.KNOWLEDGE_BASE_ID:
         return "Error: Knowledge Base ID is not configured. Please set the KNOWLEDGE_BASE_ID environment variable."
-
+        
     try:
         # Build retrieval configuration with reranking
         retrieval_config = {
             "vectorSearchConfiguration": {
                 "numberOfResults": config.RAG_NUMBER_OF_RESULTS,
+                "overrideSearchType": "HYBRID"
                 # "rerankingConfiguration": {
                 #     "type": "BEDROCK_RERANKING_MODEL",
                 #     "bedrockRerankingConfiguration": {
