@@ -1,0 +1,531 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'CloudFormation template for Amazon Bedrock Knowledge Base with OpenSearch Serverless and S3 data source'
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: "Knowledge Base Configuration"
+        Parameters:
+          - KnowledgeBaseName
+          - S3BucketName
+          - S3KeyPrefix
+      - Label:
+          default: "OpenSearch Serverless Configuration"
+        Parameters:
+          - OpenSearchCollectionName
+    ParameterLabels:
+      KnowledgeBaseName:
+        default: "Knowledge Base Name"
+      S3BucketName:
+        default: "S3 Bucket Name"
+      S3KeyPrefix:
+        default: "S3 Key Prefix (Optional)"
+      OpenSearchCollectionName:
+        default: "OpenSearch Collection Name"
+
+Mappings:
+  RegionMap:
+    us-east-1:
+      PandasLayer: 'arn:aws:lambda:us-east-1:336392948345:layer:AWSSDKPandas-Python312:12'
+    us-east-2:
+      PandasLayer: 'arn:aws:lambda:us-east-2:336392948345:layer:AWSSDKPandas-Python312:12'
+    us-west-1:
+      PandasLayer: 'arn:aws:lambda:us-west-1:336392948345:layer:AWSSDKPandas-Python312:12'
+    us-west-2:
+      PandasLayer: 'arn:aws:lambda:us-west-2:336392948345:layer:AWSSDKPandas-Python312:12'
+    ap-northeast-2:
+      PandasLayer: 'arn:aws:lambda:ap-northeast-2:336392948345:layer:AWSSDKPandas-Python312:12'
+
+Conditions:
+  HasS3KeyPrefix: !Not [!Equals [!Ref S3KeyPrefix, '']]
+
+Parameters:
+  KnowledgeBaseName:
+    Type: String
+    Description: 'Name for the Bedrock Knowledge Base'
+    Default: 'bedrock-kb'
+    MinLength: 2
+    MaxLength: 100
+    AllowedPattern: '^[a-zA-Z0-9][a-zA-Z0-9\-]*[a-zA-Z0-9]$'
+    ConstraintDescription: 'Knowledge Base name must be 2-100 characters, start and end with alphanumeric characters, and can contain hyphens'
+
+  S3BucketName:
+    Type: String
+    Description: 'Name of the S3 bucket containing source documents for the knowledge base'
+    MinLength: 3
+    MaxLength: 63
+    AllowedPattern: '^[a-z0-9]([a-z0-9\-])*[a-z0-9]$'
+    ConstraintDescription: 'S3 bucket name must be 3-63 characters, lowercase, start and end with alphanumeric characters, and can contain hyphens'
+
+  S3KeyPrefix:
+    Type: String
+    Description: 'Optional prefix to filter documents in the S3 bucket (leave empty to include all objects)'
+    Default: ''
+    MaxLength: 1024
+    AllowedPattern: '^[a-zA-Z0-9!_.*\(\)/\-]*$'
+    ConstraintDescription: 'S3 key prefix can contain alphanumeric characters, exclamation points, underscores, periods, asterisks, parentheses, forward slashes, and hyphens'
+
+  OpenSearchCollectionName:
+    Type: String
+    Description: 'Name for the OpenSearch Serverless collection'
+    Default: 'bedrock-kb-collection'
+    MinLength: 3
+    MaxLength: 32
+    AllowedPattern: '^[a-z]([a-z0-9\-])*[a-z0-9]$'
+    ConstraintDescription: 'OpenSearch collection name must be 3-32 characters, lowercase, start with a letter, end with alphanumeric character, and can contain hyphens'
+
+Resources:
+  # IAM Role for Bedrock Knowledge Base
+  BedrockKnowledgeBaseRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${KnowledgeBaseName}-bedrock-kb-role'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: bedrock.amazonaws.com
+            Action: sts:AssumeRole
+            Condition:
+              StringEquals:
+                aws:SourceAccount: !Ref 'AWS::AccountId'
+              ArnLike:
+                aws:SourceArn: !Sub 'arn:aws:bedrock:${AWS::Region}:${AWS::AccountId}:knowledge-base/*'
+      ManagedPolicyArns:
+        - !Ref BedrockS3AccessPolicy
+        - !Ref BedrockOpenSearchPolicy
+        - !Ref BedrockModelInvocationPolicy
+      Tags:
+        - Key: Name
+          Value: !Sub '${KnowledgeBaseName}-bedrock-kb-role'
+        - Key: Purpose
+          Value: 'Bedrock Knowledge Base Service Role'
+
+  # IAM Policy for S3 Access
+  BedrockS3AccessPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: !Sub '${KnowledgeBaseName}-bedrock-s3-policy'
+      Description: 'Policy allowing Bedrock Knowledge Base to access S3 bucket for document retrieval'
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action:
+              - s3:GetObject
+            Resource: !Sub 'arn:aws:s3:::${S3BucketName}/*'
+          - Effect: Allow
+            Action:
+              - s3:ListBucket
+            Resource: !Sub 'arn:aws:s3:::${S3BucketName}'
+            Condition:
+              StringEquals:
+                's3:prefix': !If
+                  - HasS3KeyPrefix
+                  - !Ref S3KeyPrefix
+                  - !Ref 'AWS::NoValue'
+
+  # IAM Policy for OpenSearch Serverless Access
+  BedrockOpenSearchPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: !Sub '${KnowledgeBaseName}-bedrock-opensearch-policy'
+      Description: 'Policy allowing Bedrock Knowledge Base to access OpenSearch Serverless collection'
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action:
+              - aoss:APIAccessAll
+            Resource: !Sub 'arn:aws:aoss:${AWS::Region}:${AWS::AccountId}:collection/*'
+
+  # IAM Policy for Bedrock Model Invocation
+  BedrockModelInvocationPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: !Sub '${KnowledgeBaseName}-bedrock-model-policy'
+      Description: 'Policy allowing Bedrock Knowledge Base to invoke Titan Text Embedding v2 model and Rerank'
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action:
+              - bedrock:InvokeModel
+            Resource:
+              - !Sub 'arn:aws:bedrock:${AWS::Region}::foundation-model/amazon.titan-embed-text-v2:0'
+              - !Sub 'arn:aws:bedrock:${AWS::Region}::foundation-model/cohere.rerank-v3-5:0'
+          - Effect: Allow
+            Action:
+              - bedrock:Rerank
+            Resource: '*'
+
+  # OpenSearch Serverless Encryption Security Policy
+  OpenSearchEncryptionPolicy:
+    Type: AWS::OpenSearchServerless::SecurityPolicy
+    Properties:
+      Name: !Sub '${OpenSearchCollectionName}-encrypt'
+      Type: encryption
+      Description: 'Encryption security policy for Bedrock Knowledge Base OpenSearch Serverless collection'
+      Policy: !Sub |
+        {
+          "Rules": [
+            {
+              "ResourceType": "collection",
+              "Resource": ["collection/${OpenSearchCollectionName}"]
+            }
+          ],
+          "AWSOwnedKey": true
+        }
+
+  # OpenSearch Serverless Network Security Policy
+  OpenSearchNetworkPolicy:
+    Type: AWS::OpenSearchServerless::SecurityPolicy
+    Properties:
+      Name: !Sub '${OpenSearchCollectionName}-network'
+      Type: network
+      Description: 'Network security policy for Bedrock Knowledge Base OpenSearch Serverless collection'
+      Policy: !Sub |
+        [
+          {
+            "Rules": [
+              {
+                "ResourceType": "collection",
+                "Resource": ["collection/${OpenSearchCollectionName}"]
+              },
+              {
+                "ResourceType": "dashboard",
+                "Resource": ["collection/${OpenSearchCollectionName}"]
+              }
+            ],
+            "AllowFromPublic": true
+          }
+        ]
+
+  # OpenSearch Serverless Collection
+  OpenSearchCollection:
+    Type: AWS::OpenSearchServerless::Collection
+    Properties:
+      Name: !Ref OpenSearchCollectionName
+      Type: VECTORSEARCH
+      Description: 'OpenSearch Serverless collection for Bedrock Knowledge Base vector storage'
+      Tags:
+        - Key: Name
+          Value: !Ref OpenSearchCollectionName
+        - Key: Purpose
+          Value: 'Bedrock Knowledge Base Vector Storage'
+    DependsOn:
+      - OpenSearchEncryptionPolicy
+      - OpenSearchNetworkPolicy
+
+  # IAM Role for OpenSearch Index Lambda
+  OpenSearchIndexLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: LambdaBasicExecution
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'logs:CreateLogGroup'
+                  - 'logs:CreateLogStream'
+                  - 'logs:PutLogEvents'
+                Resource: 'arn:aws:logs:*:*:*'
+        - PolicyName: allowAoss
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+            - Effect: Allow
+              Action:
+              - aoss:APIAccessAll
+              - aoss:List*
+              - aoss:Get*
+              - aoss:Create*
+              - aoss:Update*
+              - aoss:Delete*
+              Resource: '*'
+
+  # Lambda Function to Create OpenSearch Index
+  OpenSearchIndexLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      Handler: index.handler
+      Role: !GetAtt OpenSearchIndexLambdaRole.Arn
+      Code:
+        ZipFile: |
+          import boto3
+          import cfnresponse
+          import json
+          import time
+          from opensearchpy import OpenSearch, RequestsHttpConnection, AWSV4SignerAuth
+
+          def create_index_with_retry(client, index_name, index_body, max_retries=5, base_delay=5):
+              for attempt in range(max_retries):
+                  try:
+                      response = client.indices.create(index=index_name, body=json.dumps(index_body))
+                      print(f"Index created: {response}")
+                      return True
+                  except Exception as e:
+                      print(f"Attempt {attempt + 1} failed: {str(e)}")
+                      if attempt < max_retries - 1:
+                          delay = base_delay * (2 ** attempt)  # Exponential backoff
+                          print(f"Retrying in {delay} seconds...")
+                          time.sleep(delay)
+                      else:
+                          print("Max retries reached. Index creation failed.")
+                          return False
+
+          def handler(event, context):
+              if event['RequestType'] in ['Create', 'Update']:
+                  try:
+                      collection_name = event['ResourceProperties']['CollectionName']
+                      index_name = event['ResourceProperties']['IndexName']
+                      collection_id = event["ResourceProperties"]["CollectionId"]
+                      region = event["ResourceProperties"]["Region"]
+                      
+                      print(f"Collection Name: {collection_name}")
+                      print(f"Index Name: {index_name}")
+                      print(f"Collection ID: {collection_id}")
+                      print(f"Region: {region}")
+                      
+                      service = 'aoss'
+                      host = f"{collection_id}.{region}.{service}.amazonaws.com"
+                      credentials = boto3.Session().get_credentials()
+                      awsauth = AWSV4SignerAuth(credentials, region, service)
+                      
+                      client = OpenSearch(
+                          hosts=[{'host': host, 'port': 443}],
+                          http_auth=awsauth,
+                          use_ssl=True,
+                          verify_certs=True,
+                          connection_class=RequestsHttpConnection,
+                          pool_maxsize=20,
+                      )
+                      
+                      # Updated index_body with Nori analyzer for Korean text
+                      index_body = {
+                          "settings": {
+                              "index": {
+                                  "knn": True,
+                                  "knn.algo_param.ef_search": 512
+                              },
+                              "analysis": {
+                                  "analyzer": {
+                                      "korean_analyzer": {
+                                          "type": "custom",
+                                          "tokenizer": "nori_tokenizer",
+                                          "filter": ["lowercase", "nori_part_of_speech", "nori_readingform"]
+                                      }
+                                  },
+                                  "tokenizer": {
+                                      "nori_tokenizer": {
+                                          "type": "nori_tokenizer",
+                                          "decompound_mode": "mixed"
+                                      }
+                                  },
+                                  "filter": {
+                                      "nori_part_of_speech": {
+                                          "type": "nori_part_of_speech",
+                                          "stoptags": ["E", "IC", "J", "MAG", "MAJ", "MM", "SP", "SSC", "SSO", "SC", "SE", "XPN", "XSA", "XSN", "XSV", "UNA", "NA", "VSV"]
+                                      }
+                                  }
+                              }
+                          },
+                          "mappings": {
+                              "properties": {
+                                  "bedrock-knowledge-base-default-vector": {
+                                      "type": "knn_vector",
+                                      "dimension": 1024,
+                                      "method": {
+                                          "name": "hnsw",
+                                          "engine": "faiss",
+                                          "parameters": {
+                                              "ef_construction": 512,
+                                              "m": 16
+                                          },
+                                          "space_type": "l2",
+                                      },
+                                  },
+                                  "AMAZON_BEDROCK_METADATA": {
+                                      "type": "text",
+                                      "index": "false"
+                                  },
+                                  "AMAZON_BEDROCK_TEXT_CHUNK": {
+                                      "type": "text",
+                                      "analyzer": "korean_analyzer"
+                                  },
+                              }
+                          }
+                      }
+                      
+                      # Initial delay before attempting to create the index
+                      print("Waiting 50 seconds before attempting to create the index...")
+                      time.sleep(50)
+                      
+                      # Attempt to create the index with retry logic
+                      if create_index_with_retry(client, index_name, index_body):
+                          print("Waiting 60 seconds for the index to be fully created...")
+                          time.sleep(60)
+                          cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
+                      else:
+                          raise Exception("Failed to create index after multiple attempts")
+                  
+                  except Exception as e:
+                      print(f"Error: {str(e)}")
+                      cfnresponse.send(event, context, cfnresponse.FAILED, {})
+              else:
+                  cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
+
+      Runtime: python3.12
+      Timeout: 900
+      Layers: 
+        - !FindInMap [RegionMap, !Ref 'AWS::Region', PandasLayer]
+
+  # Custom Resource to Create OpenSearch Index
+  CreateOpenSearchIndex:
+    Type: Custom::CreateOpenSearchIndex
+    Properties:
+      ServiceToken: !GetAtt OpenSearchIndexLambda.Arn
+      CollectionName: !Ref OpenSearchCollectionName
+      IndexName: 'vector-index'
+      CollectionId: !GetAtt OpenSearchCollection.Id
+      Region: !Ref 'AWS::Region'
+    DependsOn:
+      - OpenSearchCollection
+
+  # OpenSearch Serverless Data Access Policy
+  OpenSearchDataAccessPolicy:
+    Type: AWS::OpenSearchServerless::AccessPolicy
+    Properties:
+      Name: !Sub '${OpenSearchCollectionName}-access'
+      Type: data
+      Description: 'Data access policy granting Bedrock service role permissions to OpenSearch Serverless collection'
+      Policy: !Sub |
+        [
+          {
+            "Rules": [
+              {
+                "ResourceType": "collection",
+                "Resource": ["collection/${OpenSearchCollectionName}"],
+                "Permission": [
+                  "aoss:CreateCollectionItems",
+                  "aoss:DeleteCollectionItems",
+                  "aoss:UpdateCollectionItems",
+                  "aoss:DescribeCollectionItems"
+                ]
+              },
+              {
+                "ResourceType": "index",
+                "Resource": ["index/${OpenSearchCollectionName}/*"],
+                "Permission": [
+                  "aoss:CreateIndex",
+                  "aoss:DeleteIndex",
+                  "aoss:UpdateIndex",
+                  "aoss:DescribeIndex",
+                  "aoss:ReadDocument",
+                  "aoss:WriteDocument"
+                ]
+              }
+            ],
+            "Principal": [
+              "${BedrockKnowledgeBaseRole.Arn}",
+              "${OpenSearchIndexLambdaRole.Arn}"
+            ]
+          }
+        ]
+    DependsOn:
+      - OpenSearchCollection
+      - BedrockKnowledgeBaseRole
+      - OpenSearchIndexLambdaRole
+
+  # Bedrock Knowledge Base
+  BedrockKnowledgeBase:
+    Type: AWS::Bedrock::KnowledgeBase
+    Properties:
+      Name: !Ref KnowledgeBaseName
+      Description: 'Bedrock Knowledge Base with OpenSearch Serverless vector storage and S3 data source'
+      RoleArn: !GetAtt BedrockKnowledgeBaseRole.Arn
+      KnowledgeBaseConfiguration:
+        Type: VECTOR
+        VectorKnowledgeBaseConfiguration:
+          EmbeddingModelArn: !Sub 'arn:aws:bedrock:${AWS::Region}::foundation-model/amazon.titan-embed-text-v2:0'
+      StorageConfiguration:
+        Type: OPENSEARCH_SERVERLESS
+        OpensearchServerlessConfiguration:
+          CollectionArn: !GetAtt OpenSearchCollection.Arn
+          VectorIndexName: 'vector-index'
+          FieldMapping:
+            VectorField: 'bedrock-knowledge-base-default-vector'
+            TextField: 'AMAZON_BEDROCK_TEXT_CHUNK'
+            MetadataField: 'AMAZON_BEDROCK_METADATA'
+      Tags:
+        Name: !Ref KnowledgeBaseName
+        Purpose: 'Bedrock Knowledge Base for Document Search and Retrieval'
+    DependsOn:
+      - BedrockKnowledgeBaseRole
+      - OpenSearchCollection
+      - OpenSearchDataAccessPolicy
+      - CreateOpenSearchIndex
+
+  # S3 Data Source for Bedrock Knowledge Base
+  BedrockKnowledgeBaseDataSource:
+    Type: AWS::Bedrock::DataSource
+    Properties:
+      Name: !Sub '${KnowledgeBaseName}-s3-data-source'
+      Description: 'S3 data source for Bedrock Knowledge Base document ingestion'
+      KnowledgeBaseId: !Ref BedrockKnowledgeBase
+      DataSourceConfiguration:
+        Type: S3
+        S3Configuration:
+          BucketArn: !Sub 'arn:aws:s3:::${S3BucketName}'
+          InclusionPrefixes: !If
+            - HasS3KeyPrefix
+            - [!Ref S3KeyPrefix]
+            - !Ref 'AWS::NoValue'
+      VectorIngestionConfiguration:
+        ChunkingConfiguration:
+          ChunkingStrategy: HIERARCHICAL
+          HierarchicalChunkingConfiguration:
+            LevelConfigurations:
+              - MaxTokens: 1500
+              - MaxTokens: 300
+            OverlapTokens: 60
+
+
+    DependsOn:
+      - BedrockKnowledgeBase
+
+Outputs:
+  BedrockKnowledgeBaseId:
+    Description: 'ID of the Bedrock Knowledge Base'
+    Value: !Ref BedrockKnowledgeBase
+    Export:
+      Name: !Sub '${AWS::StackName}-BedrockKnowledgeBaseId'
+
+  BedrockKnowledgeBaseRoleArn:
+    Description: 'ARN of the IAM role used by the Bedrock Knowledge Base'
+    Value: !GetAtt BedrockKnowledgeBaseRole.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-BedrockKnowledgeBaseRoleArn'
+
+  OpenSearchServerlessCollectionArn:
+    Description: 'ARN of the OpenSearch Serverless collection used for vector storage'
+    Value: !GetAtt OpenSearchCollection.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-OpenSearchServerlessCollectionArn'
+
+  BedrockKnowledgeBaseDataSourceId:
+    Description: 'ID of the S3 data source for the Bedrock Knowledge Base'
+    Value: !Ref BedrockKnowledgeBaseDataSource
+    Export:
+      Name: !Sub '${AWS::StackName}-BedrockKnowledgeBaseDataSourceId'
